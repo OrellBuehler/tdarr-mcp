@@ -19,7 +19,7 @@
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "npm run build"
+    "prepare": "npm run build && prek install"
   },
   "engines": {
     "node": ">=20"
