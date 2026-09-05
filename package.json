@@ -1,0 +1,71 @@
+{
+  "name": "@orellbuehler/tdarr-mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for Tdarr: libraries, files, nodes and workers, plugins and flows, job reports, statistics, backups and automations.",
+  "type": "module",
+  "bin": {
+    "tdarr-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/__tests__"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "tdarr",
+    "transcode",
+    "transcoding",
+    "ffmpeg",
+    "handbrake",
+    "media",
+    "media-server",
+    "claude",
+    "ai-agents",
+    "llm",
+    "ai"
+  ],
+  "author": "Orell Bühler",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OrellBuehler/tdarr-mcp.git"
+  },
+  "homepage": "https://github.com/OrellBuehler/tdarr-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/OrellBuehler/tdarr-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@j178/prek": "^0.4.4",
+    "@types/node": "^22.15.3",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.60.0",
+    "vitest": "^4.1.0"
+  }
+}
