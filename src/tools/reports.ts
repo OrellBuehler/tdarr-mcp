@@ -1,15 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err } from "../tdarr/format.js";
+import { DESTRUCTIVE, READ } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
-export function registerReportTools(server: McpServer, client: TdarrClient) {
+export function registerReportTools(
+  server: McpServer,
+  client: TdarrClient,
+  allowDestructive = false,
+) {
   server.tool(
     "search_job_reports",
     "Search the job reports on the server by filename (POST /api/v2/search-job-reports). Returns the matching report filenames and their last-modified time; read one with get_job_report.",
     {
       search: z.string().describe("Search terms matched against report filenames"),
     },
+    READ,
     async ({ search }) => {
       try {
         return ok(
@@ -27,6 +33,7 @@ export function registerReportTools(server: McpServer, client: TdarrClient) {
     {
       job_id: z.string().describe("Job ID"),
     },
+    READ,
     async ({ job_id }) => {
       try {
         return ok(await client.get(`/api/v2/job-reports/${encodeURIComponent(job_id)}`));
@@ -42,6 +49,7 @@ export function registerReportTools(server: McpServer, client: TdarrClient) {
     {
       footprint_id: z.string().describe("File footprintId, from get_file"),
     },
+    READ,
     async ({ footprint_id }) => {
       try {
         return ok(
@@ -63,6 +71,7 @@ export function registerReportTools(server: McpServer, client: TdarrClient) {
       job_id: z.string().describe("Job ID"),
       job_file_id: z.string().describe("Report file ID, from list_file_job_reports"),
     },
+    READ,
     async ({ footprint_id, job_id, job_file_id }) => {
       try {
         return ok(
@@ -76,12 +85,15 @@ export function registerReportTools(server: McpServer, client: TdarrClient) {
     },
   );
 
+  if (!allowDestructive) return;
+
   server.tool(
     "delete_job_report",
     "Delete one job report from the database and from disk (POST /api/v2/delete-job-report).",
     {
       job_id: z.string().describe("Job ID of the report to delete"),
     },
+    DESTRUCTIVE,
     async ({ job_id }) => {
       try {
         return ok(await client.post("/api/v2/delete-job-report", { data: { jobId: job_id } }));
@@ -100,6 +112,7 @@ export function registerReportTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Filters selecting which reports to delete; omit to delete all of them"),
     },
+    DESTRUCTIVE,
     async ({ filters }) => {
       try {
         return ok(

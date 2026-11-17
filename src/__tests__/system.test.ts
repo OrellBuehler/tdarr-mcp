@@ -3,6 +3,7 @@ import { registerSystemTools } from "../tools/system.js";
 import { collect, mockJson, mockText, bodyOf, urlOf, jsonOf } from "./helpers.js";
 
 const { tools } = collect(registerSystemTools);
+const readOnly = collect(registerSystemTools, false);
 
 describe("system tools", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -91,5 +92,30 @@ describe("system tools", () => {
     const res = await tools.get("get_status")!({});
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain("invalid api key");
+  });
+
+  it("check_for_update refuses to download or apply by default", async () => {
+    for (const args of [{ download_update: true }, { apply_update: true }]) {
+      const res = await readOnly.tools.get("check_for_update")!(args);
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toContain("TDARR_ALLOW_DESTRUCTIVE");
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("check_for_update still checks by default", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({ updateAvailable: false }));
+    await readOnly.tools.get("check_for_update")!({});
+    expect(bodyOf(mockFetch)).toEqual({
+      downloadUpdate: false,
+      applyUpdate: false,
+      resetUpdater: false,
+    });
+  });
+
+  it("does not register run_help_command or the restart tools by default", () => {
+    for (const name of ["run_help_command", "restart_server", "restart_ui", "relaunch_server"]) {
+      expect(readOnly.tools.has(name), name).toBe(false);
+    }
   });
 });

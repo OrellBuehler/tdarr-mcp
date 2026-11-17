@@ -1,11 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, summarizeFile, summarizeList } from "../tdarr/format.js";
+import { DESTRUCTIVE, IDEMPOTENT, READ, WRITE } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 const FILES = "FileJSONDB";
+const READ_OPTS = ["table", "property", "fileMedium", "detail", "dbID", "csv"] as const;
 
-export function registerFileTools(server: McpServer, client: TdarrClient) {
+export function registerFileTools(
+  server: McpServer,
+  client: TdarrClient,
+  allowDestructive = false,
+) {
   server.tool(
     "search_files",
     "Search the Tdarr file database by filename substring and file size (POST /api/v2/search-db). Returns one summarized record per match: path, library, container, size, codecs, and transcode/health status.",
@@ -18,6 +24,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Return the full records, including ffProbe and MediaInfo data"),
     },
+    READ,
     async ({ search, greater_than_gb, less_than_gb, detailed }) => {
       try {
         const res = await client.post("/api/v2/search-db", {
@@ -42,6 +49,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
         .string()
         .describe("File ID, which is the file's full path as Tdarr Server sees it"),
     },
+    READ,
     async ({ file_id }) => {
       try {
         return ok(await client.cruddb({ collection: FILES, mode: "getById", docID: file_id }));
@@ -53,7 +61,9 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
 
   server.tool(
     "query_table",
-    "Query one of the paginated tables behind the Tdarr UI (POST /api/v2/client/{client_type}) with server-side filtering, sorting and paging. This is the low-level escape hatch for views search_files cannot express; the valid client_type and opts.table values are the ones the Tdarr UI uses for that page. Prefer search_files for plain file lookups.",
+    allowDestructive
+      ? "Query or bulk-update one of the paginated tables behind the Tdarr UI (POST /api/v2/client/{client_type}) with server-side filtering, sorting and paging. The valid client_type and opts.table values are the ones the Tdarr UI uses for that page. This endpoint also WRITES: opts.setAll with opts.updatedObj rewrites every matching file record, and opts.applyToAllStaged with opts.verdict resolves every staged item — confirm with the user before sending any of those. Prefer search_files for plain file lookups."
+      : `Read one of the paginated tables behind the Tdarr UI (POST /api/v2/client/{client_type}) with server-side filtering, sorting and paging. Read-only: opts only accepts ${READ_OPTS.join(", ")}; the bulk-write options of this endpoint (setAll, updatedObj, applyToAllStaged, verdict) are rejected unless the server is started with TDARR_ALLOW_DESTRUCTIVE=true. The valid client_type and opts.table values are the ones the Tdarr UI uses for that page. Prefer search_files for plain file lookups.`,
     {
       client_type: z
         .string()
@@ -69,14 +79,25 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Sort order, e.g. [{ id: 'file_size', desc: true }]"),
       opts: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .optional()
         .describe(
           "Endpoint-specific options, e.g. { table: 'table1', dbID: '<libraryId>' }. Tdarr's file tables are table1 transcode queue, table2 transcode success, table3 transcode error, table4 health check queue, table5 health check success, table6 health check error.",
         ),
     },
+    allowDestructive ? DESTRUCTIVE : READ,
     async ({ client_type, start, page_size, filters, sorts, opts }) => {
       try {
+        if (!allowDestructive) {
+          const rejected = Object.keys(opts ?? {}).filter(
+            (key) => !(READ_OPTS as readonly string[]).includes(key),
+          );
+          if (rejected.length > 0) {
+            return err(
+              `query_table is read-only: opts.${rejected.join(", opts.")} not allowed. Set TDARR_ALLOW_DESTRUCTIVE=true to enable the write-capable options.`,
+            );
+          }
+        }
         return ok(
           await client.post(`/api/v2/client/${encodeURIComponent(client_type)}`, {
             data: {
@@ -101,6 +122,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
       file_id: z.string().describe("File ID (full path), from search_files"),
       library_id: z.string().describe("Library ID (dbID) the file belongs to"),
     },
+    IDEMPOTENT,
     async ({ file_id, library_id }) => {
       try {
         return ok(
@@ -124,6 +146,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Scan for closed captions (default false; this one is slow)"),
     },
+    READ,
     async ({ file_path, exiftool, mediainfo, closed_captions }) => {
       try {
         return ok(
@@ -150,6 +173,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
     {
       file_path: z.string().describe("Full file path, as Tdarr Server sees it"),
     },
+    WRITE,
     async ({ file_path }) => {
       try {
         return ok(await client.post("/api/v2/create-sample", { data: { filePath: file_path } }));
@@ -172,6 +196,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
         .string()
         .describe("Status to set on the files, e.g. 'Queued' to put them back in the queue"),
     },
+    IDEMPOTENT,
     async ({ library_id, table, mode, process_status }) => {
       try {
         return ok(
@@ -186,32 +211,15 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
   );
 
   server.tool(
-    "set_staged_verdict",
-    "Take action on an item staged for user approval (POST /api/v2/transcode-user-verdict) — accept, reject or otherwise resolve a transcode that is waiting on a decision.",
-    {
-      item: z
-        .record(z.unknown())
-        .describe("The staged item record, as returned by query_table for the staged view"),
-      verdict: z.string().describe("The verdict to apply, as used by the Tdarr staged-items UI"),
-    },
-    async ({ item, verdict }) => {
-      try {
-        return ok(
-          await client.post("/api/v2/transcode-user-verdict", { data: { obj: item, verdict } }),
-        );
-      } catch (e) {
-        return err(e);
-      }
-    },
-  );
-
-  server.tool(
     "bulk_update_files",
     "Update fields on specific file records by ID (POST /api/v2/bulk-update-files). The update object is merged into every listed file — e.g. { holdUntil: 0 } to release a hold, or { TranscodeDecisionMaker: 'Queued' } to requeue just those files.",
     {
       file_ids: z.array(z.string()).min(1).describe("File IDs (full paths) to update"),
-      updates: z.record(z.unknown()).describe("Object of fields to merge into each file record"),
+      updates: z
+        .record(z.string(), z.unknown())
+        .describe("Object of fields to merge into each file record"),
     },
+    IDEMPOTENT,
     async ({ file_ids, updates }) => {
       try {
         return ok(
@@ -219,70 +227,6 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
             data: { fileIds: file_ids, updatedObj: updates },
           }),
         );
-      } catch (e) {
-        return err(e);
-      }
-    },
-  );
-
-  server.tool(
-    "delete_file",
-    "Delete one file from disk and remove it from the Tdarr database (POST /api/v2/delete-file). This deletes real media — confirm with the user first.",
-    {
-      file_id: z.string().describe("File ID (full path), from search_files"),
-    },
-    async ({ file_id }) => {
-      try {
-        return ok(await client.post("/api/v2/delete-file", { data: { file: { _id: file_id } } }));
-      } catch (e) {
-        return err(e);
-      }
-    },
-  );
-
-  server.tool(
-    "bulk_delete_files",
-    "Delete several files from disk and remove them from the Tdarr database (POST /api/v2/bulk-delete-files). This deletes real media — list the files for the user and confirm before calling.",
-    {
-      file_ids: z.array(z.string()).min(1).describe("File IDs (full paths) to delete"),
-    },
-    async ({ file_ids }) => {
-      try {
-        return ok(await client.post("/api/v2/bulk-delete-files", { data: { fileIds: file_ids } }));
-      } catch (e) {
-        return err(e);
-      }
-    },
-  );
-
-  server.tool(
-    "delete_unhealthy_files",
-    "Delete every file in the transcode-error table (table3) or the health-check-error table (table6) from disk (POST /api/v2/delete-unhealthy-files). This deletes real media in bulk — always list the affected files with query_table and confirm with the user first.",
-    {
-      table: z
-        .enum(["table3", "table6"])
-        .describe(
-          "table3 = files that failed to transcode, table6 = files that failed a health check",
-        ),
-    },
-    async ({ table }) => {
-      try {
-        return ok(await client.post("/api/v2/delete-unhealthy-files", { data: { table } }));
-      } catch (e) {
-        return err(e);
-      }
-    },
-  );
-
-  server.tool(
-    "delete_cache_file",
-    "Delete a leftover file from the Tdarr transcode cache (POST /api/v2/delete-cache-file). Use it to clear partial output from an interrupted worker.",
-    {
-      file: z.string().describe("Full path of the cache file to delete"),
-    },
-    async ({ file }) => {
-      try {
-        return ok(await client.post("/api/v2/delete-cache-file", { data: { file } }));
       } catch (e) {
         return err(e);
       }
@@ -307,6 +251,7 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("How much of each file to hash, for detection_method 'sha256'"),
     },
+    WRITE,
     async ({ threshold, count, detection_method, hash_amount }) => {
       try {
         const data: Record<string, unknown> = { threshold, count };
@@ -323,9 +268,101 @@ export function registerFileTools(server: McpServer, client: TdarrClient) {
     "stop_find_duplicates",
     "Stop a running duplicate detection pass (GET /api/v2/stop-dedupe).",
     {},
+    IDEMPOTENT,
     async () => {
       try {
         return ok(await client.get("/api/v2/stop-dedupe"));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  if (!allowDestructive) return;
+
+  server.tool(
+    "set_staged_verdict",
+    "Take action on an item staged for user approval (POST /api/v2/transcode-user-verdict) — accept, reject or otherwise resolve a transcode that is waiting on a decision.",
+    {
+      item: z
+        .record(z.string(), z.unknown())
+        .describe("The staged item record, as returned by query_table for the staged view"),
+      verdict: z.string().describe("The verdict to apply, as used by the Tdarr staged-items UI"),
+    },
+    DESTRUCTIVE,
+    async ({ item, verdict }) => {
+      try {
+        return ok(
+          await client.post("/api/v2/transcode-user-verdict", { data: { obj: item, verdict } }),
+        );
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.tool(
+    "delete_file",
+    "Delete one file from disk and remove it from the Tdarr database (POST /api/v2/delete-file). This deletes real media — confirm with the user first.",
+    {
+      file_id: z.string().describe("File ID (full path), from search_files"),
+    },
+    DESTRUCTIVE,
+    async ({ file_id }) => {
+      try {
+        return ok(await client.post("/api/v2/delete-file", { data: { file: { _id: file_id } } }));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.tool(
+    "bulk_delete_files",
+    "Delete several files from disk and remove them from the Tdarr database (POST /api/v2/bulk-delete-files). This deletes real media — list the files for the user and confirm before calling.",
+    {
+      file_ids: z.array(z.string()).min(1).describe("File IDs (full paths) to delete"),
+    },
+    DESTRUCTIVE,
+    async ({ file_ids }) => {
+      try {
+        return ok(await client.post("/api/v2/bulk-delete-files", { data: { fileIds: file_ids } }));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.tool(
+    "delete_unhealthy_files",
+    "Delete every file in the transcode-error table (table3) or the health-check-error table (table6) from disk (POST /api/v2/delete-unhealthy-files). This deletes real media in bulk — always list the affected files with query_table and confirm with the user first.",
+    {
+      table: z
+        .enum(["table3", "table6"])
+        .describe(
+          "table3 = files that failed to transcode, table6 = files that failed a health check",
+        ),
+    },
+    DESTRUCTIVE,
+    async ({ table }) => {
+      try {
+        return ok(await client.post("/api/v2/delete-unhealthy-files", { data: { table } }));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.tool(
+    "delete_cache_file",
+    "Delete a leftover file from the Tdarr transcode cache (POST /api/v2/delete-cache-file). Use it to clear partial output from an interrupted worker.",
+    {
+      file: z.string().describe("Full path of the cache file to delete"),
+    },
+    DESTRUCTIVE,
+    async ({ file }) => {
+      try {
+        return ok(await client.post("/api/v2/delete-cache-file", { data: { file } }));
       } catch (e) {
         return err(e);
       }

@@ -3,6 +3,7 @@ import { registerFileTools } from "../tools/files.js";
 import { collect, mockJson, mockText, bodyOf, urlOf, jsonOf } from "./helpers.js";
 
 const { tools } = collect(registerFileTools);
+const readOnly = collect(registerFileTools, false);
 
 describe("file tools", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -193,5 +194,43 @@ describe("file tools", () => {
     await tools.get("stop_find_duplicates")!({});
     expect(urlOf(mockFetch)).toBe("http://tdarr.local:8265/api/v2/stop-dedupe");
     expect(mockFetch.mock.calls[0][1].method).toBeUndefined();
+  });
+
+  it("query_table rejects the write-capable opts by default without sending a request", async () => {
+    for (const opts of [
+      { table: "table1", setAll: true, updatedObj: { TranscodeDecisionMaker: "Queued" } },
+      { updatedObj: {} },
+      { applyToAllStaged: true, verdict: "accept" },
+      { verdict: "reject" },
+      { somethingNew: 1 },
+    ]) {
+      const res = await readOnly.tools.get("query_table")!({ client_type: "files", opts });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toContain("TDARR_ALLOW_DESTRUCTIVE");
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("query_table still reads with the read-only opts by default", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({ array: [] }));
+    const opts = { table: "table1", dbID: "lib1", property: "x", fileMedium: "video", csv: false };
+    const res = await readOnly.tools.get("query_table")!({ client_type: "files", opts });
+    expect(res.isError).toBeUndefined();
+    expect(bodyOf(mockFetch).data.opts).toEqual(opts);
+  });
+
+  it("query_table describes itself as read-only by default and as writing when enabled", () => {
+    expect(readOnly.descriptions.get("query_table")).toContain("Read-only");
+    expect(readOnly.annotations.get("query_table")).toEqual({ readOnlyHint: true });
+    const enabled = collect(registerFileTools, true);
+    expect(enabled.descriptions.get("query_table")).toContain("WRITES");
+    expect(enabled.annotations.get("query_table")!.destructiveHint).toBe(true);
+  });
+
+  it("query_table passes the write-capable opts through when destructive tools are enabled", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    const opts = { table: "table1", setAll: true, updatedObj: { holdUntil: 0 } };
+    await tools.get("query_table")!({ client_type: "files", opts });
+    expect(bodyOf(mockFetch).data.opts).toEqual(opts);
   });
 });

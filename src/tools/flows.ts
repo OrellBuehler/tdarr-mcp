@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, pruneUndefined, summarizeList } from "../tdarr/format.js";
+import { READ } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 const FLOWS = "FlowsJSONDB";
@@ -34,6 +35,7 @@ export function registerFlowTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Return the full flow graphs instead of the summary"),
     },
+    READ,
     async ({ detailed }) => {
       try {
         const res = await client.cruddb({ collection: FLOWS, mode: "getAll" });
@@ -50,6 +52,7 @@ export function registerFlowTools(server: McpServer, client: TdarrClient) {
     {
       flow_id: z.string().describe("Flow ID, from list_flows"),
     },
+    READ,
     async ({ flow_id }) => {
       try {
         return ok(await client.cruddb({ collection: FLOWS, mode: "getById", docID: flow_id }));
