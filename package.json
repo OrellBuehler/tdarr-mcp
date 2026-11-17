@@ -1,6 +1,6 @@
 {
   "name": "@orellbuehler/tdarr-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Model Context Protocol server for Tdarr: libraries, files, nodes and workers, plugins and flows, job reports, statistics, backups and automations.",
   "type": "module",
   "bin": {

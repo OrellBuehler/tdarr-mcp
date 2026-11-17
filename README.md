@@ -23,8 +23,8 @@ Point Claude (or any MCP client) at it and the agent can:
 - **Report on the numbers** — space saved by library, node or plugin; success and error rates over
   time; codec, container and resolution breakdowns.
 
-85 tools, zero install (`npx`), works with Claude Code, Claude Desktop, Cursor, and any other MCP
-client.
+85 tools (63 by default, 22 more behind an explicit opt-in), zero install (`npx`), works with
+Claude Code, Claude Desktop, Cursor, and any other MCP client.
 
 ## Example prompts
 
@@ -58,7 +58,7 @@ claude mcp add tdarr \
 
 See [Usage with Claude Code](#usage-with-claude-code) for the equivalent JSON config. For any other
 MCP client, run the package directly — `npx -y @orellbuehler/tdarr-mcp` with `TDARR_URL` set in the
-environment. Requires Node.js 20+.
+environment. Requires Node.js 22+.
 
 ## Getting an API key
 
@@ -70,18 +70,58 @@ environment. Requires Node.js 20+.
 3. Copy the key — it starts with `tapi_` — and treat it like a password.
 
 The key is sent as the `x-api-key` header on every request. If your server has authentication
-turned off, leave `TDARR_API_KEY` unset and everything works.
+turned off, `TDARR_API_KEY` can stay unset and everything works.
+
+**Turn Tdarr authentication on and set `TDARR_API_KEY`.** Without `auth`, anyone who can reach the
+Tdarr port can call every endpoint this server wraps — including the ones that delete media, write
+plugin code and run commands on the host — with no credentials at all. The opt-in below only limits
+what the agent is offered; it does not protect the Tdarr API itself.
 
 ## Configuration
 
-| Variable        | Required | Description                                                        |
-| --------------- | -------- | ------------------------------------------------------------------ |
-| `TDARR_URL`     | yes\*    | Base URL of Tdarr Server, e.g. `http://tdarr.local:8265`.          |
-| `TDARR_SERVER`  | no       | Alias for `TDARR_URL`. Used if `TDARR_URL` is unset.               |
-| `TDARR_API_KEY` | no       | API key from Tools → API Keys. Only needed when `auth` is enabled. |
+| Variable                  | Required | Description                                                                                                           |
+| ------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| `TDARR_URL`               | yes\*    | Base URL of Tdarr Server, e.g. `http://tdarr.local:8265`.                                                             |
+| `TDARR_SERVER`            | no       | Alias for `TDARR_URL`. Used if `TDARR_URL` is unset.                                                                  |
+| `TDARR_API_KEY`           | no       | API key from Tools → API Keys. Only needed when `auth` is enabled.                                                    |
+| `TDARR_ALLOW_DESTRUCTIVE` | no       | Set to `true` or `1` to register the destructive tools. Off by default — see [Destructive tools](#destructive-tools). |
 
 \* Either `TDARR_URL` or `TDARR_SERVER` must be set. A missing scheme is treated as `http://`, and
 trailing slashes are stripped.
+
+## Destructive tools
+
+Since 0.2.0 the tools that delete data, interrupt running work, write or distribute plugin code, or
+run a command on the server are **not registered** unless `TDARR_ALLOW_DESTRUCTIVE` is `true` or `1`.
+They are marked † in the [tool catalog](#tools):
+
+- **Delete data:** `delete_file`, `bulk_delete_files`, `delete_unhealthy_files`, `delete_cache_file`,
+  `remove_library_files`, `delete_job_report`, `delete_job_reports`, `delete_backup`,
+  `delete_plugin`.
+- **Replace or discard media:** `set_staged_verdict` (accepting a staged transcode replaces the
+  original file).
+- **Interrupt work:** `restart_server`, `relaunch_server`, `restart_ui`, `restart_node`,
+  `kill_worker`, `disconnect_node`.
+- **Write or distribute plugin code** (plugins are JavaScript that Tdarr executes on the server and
+  every node): `save_plugin`, `create_plugin`, `copy_community_plugin_to_local`,
+  `update_community_plugins`, `sync_plugins_to_nodes`.
+- **Run a command on the server:** `run_help_command`.
+
+Two tools stay registered but are restricted without the flag:
+
+- `query_table` is read-only. Its `opts` only accepts `table`, `property`, `fileMedium`, `detail`,
+  `dbID` and `csv`; the endpoint's bulk-write options (`setAll`, `updatedObj`, `applyToAllStaged`,
+  `verdict`) are rejected before any request is sent.
+- `check_for_update` only checks. `download_update` and `apply_update` are rejected.
+
+Every tool also carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so a
+client can ask for confirmation on the ones that change something.
+
+### Upgrading from 0.1.x
+
+**Breaking:** the 22 tools above disappear until you add `TDARR_ALLOW_DESTRUCTIVE=true` to the
+server's environment, and `query_table` / `check_for_update` lose their write paths. Node.js 22 or
+newer is now required.
 
 ## Usage with Claude Code
 
@@ -109,7 +149,8 @@ session.
 
 ## Tools
 
-85 tools in 11 groups, over the [Tdarr API](https://docs.tdarr.io/docs/api/).
+85 tools in 11 groups, over the [Tdarr API](https://docs.tdarr.io/docs/api/). Tools marked † are only
+registered with `TDARR_ALLOW_DESTRUCTIVE=true`.
 
 **System** (13)
 
@@ -122,12 +163,12 @@ session.
 | `get_db_statuses`       | Status of the Tdarr databases.                                        |
 | `get_process_info`      | Process tree of server and nodes — finds stuck ffmpeg children.       |
 | `get_performance_stats` | Internal timings, for diagnosing a slow server.                       |
-| `check_for_update`      | Check, download and/or apply a Tdarr update. Check-only by default.   |
+| `check_for_update`      | Check for a Tdarr update. Download and apply need the opt-in.         |
 | `get_package_index`     | Versions the updater can install.                                     |
-| `relaunch_server`       | Relaunch to finish applying a downloaded update.                      |
-| `restart_server`        | Restart Tdarr Server. Interrupts running workers.                     |
-| `restart_ui`            | Restart just the web UI process.                                      |
-| `run_help_command`      | Run `ffmpeg`/HandBrake help to check which encoders actually exist.   |
+| `relaunch_server` †     | Relaunch to finish applying a downloaded update.                      |
+| `restart_server` †      | Restart Tdarr Server. Interrupts running workers.                     |
+| `restart_ui` †          | Restart just the web UI process.                                      |
+| `run_help_command` †    | Run `ffmpeg`/HandBrake help to check which encoders actually exist.   |
 
 **Nodes & workers** (9)
 
@@ -139,9 +180,9 @@ session.
 | `update_node`            | Change node settings — pause, rename, reprioritize.                  |
 | `alter_worker_limit`     | Move a worker-pool limit up or down by one.                          |
 | `cancel_worker_item`     | Cancel the current item; the worker keeps running.                   |
-| `kill_worker`            | Kill a wedged worker outright.                                       |
-| `restart_node`           | Restart a node process.                                              |
-| `disconnect_node`        | Force-disconnect a node that is gone but still listed.               |
+| `kill_worker` †          | Kill a wedged worker outright.                                       |
+| `restart_node` †         | Restart a node process.                                              |
+| `disconnect_node` †      | Force-disconnect a node that is gone but still listed.               |
 
 **Libraries** (13)
 
@@ -152,7 +193,7 @@ session.
 | `scan_library`           | Start a `scanFindNew`, `scanFresh` or `scanFolderWatcher` scan.    |
 | `get_scanner_status`     | Progress of a running scan.                                        |
 | `kill_scanner`           | Stop a scan mid-run.                                               |
-| `remove_library_files`   | Clear a library's file records. Files on disk are untouched.       |
+| `remove_library_files` † | Clear a library's file records. Files on disk are untouched.       |
 | `toggle_folder_watch`    | Enable/disable folder watching for one folder.                     |
 | `toggle_schedule`        | Turn a range of schedule blocks on or off.                         |
 | `update_schedule_block`  | Toggle a single schedule block.                                    |
@@ -163,40 +204,40 @@ session.
 
 **Files** (15)
 
-| Tool                     | Description                                                     |
-| ------------------------ | --------------------------------------------------------------- |
-| `search_files`           | Search the file database by name substring and size.            |
-| `get_file`               | One file's full record — ffProbe, MediaInfo, history.           |
-| `query_table`            | Low-level paginated UI table query with filters and sorts.      |
-| `rescan_file`            | Refresh one file's scan data.                                   |
-| `scan_file_details`      | Run ExifTool / MediaInfo / closed-caption scans on any path.    |
-| `create_sample`          | Make a 30 second sample for testing a plugin stack or flow.     |
-| `requeue_files`          | Requeue a library for transcoding or health checking.           |
-| `set_staged_verdict`     | Accept or reject an item staged for approval.                   |
-| `bulk_update_files`      | Merge field updates into specific file records.                 |
-| `delete_file`            | Delete one file from disk and the database.                     |
-| `bulk_delete_files`      | Delete several files from disk and the database.                |
-| `delete_unhealthy_files` | Delete everything in the transcode-error or health-error table. |
-| `delete_cache_file`      | Remove leftover output from an interrupted worker.              |
-| `find_duplicates`        | Start duplicate detection by metadata or sha256.                |
-| `stop_find_duplicates`   | Stop a running duplicate pass.                                  |
+| Tool                       | Description                                                       |
+| -------------------------- | ----------------------------------------------------------------- |
+| `search_files`             | Search the file database by name substring and size.              |
+| `get_file`                 | One file's full record — ffProbe, MediaInfo, history.             |
+| `query_table`              | Low-level paginated UI table query. Read-only without the opt-in. |
+| `rescan_file`              | Refresh one file's scan data.                                     |
+| `scan_file_details`        | Run ExifTool / MediaInfo / closed-caption scans on any path.      |
+| `create_sample`            | Make a 30 second sample for testing a plugin stack or flow.       |
+| `requeue_files`            | Requeue a library for transcoding or health checking.             |
+| `set_staged_verdict` †     | Accept or reject an item staged for approval.                     |
+| `bulk_update_files`        | Merge field updates into specific file records.                   |
+| `delete_file` †            | Delete one file from disk and the database.                       |
+| `bulk_delete_files` †      | Delete several files from disk and the database.                  |
+| `delete_unhealthy_files` † | Delete everything in the transcode-error or health-error table.   |
+| `delete_cache_file` †      | Remove leftover output from an interrupted worker.                |
+| `find_duplicates`          | Start duplicate detection by metadata or sha256.                  |
+| `stop_find_duplicates`     | Stop a running duplicate pass.                                    |
 
 **Plugins** (12)
 
-| Tool                             | Description                                            |
-| -------------------------------- | ------------------------------------------------------ |
-| `search_plugins`                 | Search classic plugins (Community and Local).          |
-| `search_flow_plugins`            | Search the nodes available inside a flow.              |
-| `search_flow_templates`          | Search ready-made flow templates.                      |
-| `read_plugin`                    | Read a classic plugin's source.                        |
-| `save_plugin`                    | Overwrite a local plugin's source.                     |
-| `create_plugin`                  | Create a basic local plugin with the plugin creator.   |
-| `copy_community_plugin_to_local` | Copy a Community plugin so it survives plugin updates. |
-| `verify_plugin`                  | Check a plugin exists before wiring it into a library. |
-| `delete_plugin`                  | Delete a plugin from the server.                       |
-| `update_community_plugins`       | Pull the latest Community plugins.                     |
-| `sync_plugins_to_nodes`          | Push the server's plugins out to every node.           |
-| `list_plugin_repo_versions`      | Recent commits on the upstream plugin repo.            |
+| Tool                               | Description                                            |
+| ---------------------------------- | ------------------------------------------------------ |
+| `search_plugins`                   | Search classic plugins (Community and Local).          |
+| `search_flow_plugins`              | Search the nodes available inside a flow.              |
+| `search_flow_templates`            | Search ready-made flow templates.                      |
+| `read_plugin`                      | Read a classic plugin's source.                        |
+| `save_plugin` †                    | Overwrite a local plugin's source.                     |
+| `create_plugin` †                  | Create a basic local plugin with the plugin creator.   |
+| `copy_community_plugin_to_local` † | Copy a Community plugin so it survives plugin updates. |
+| `verify_plugin`                    | Check a plugin exists before wiring it into a library. |
+| `delete_plugin` †                  | Delete a plugin from the server.                       |
+| `update_community_plugins` †       | Pull the latest Community plugins.                     |
+| `sync_plugins_to_nodes` †          | Push the server's plugins out to every node.           |
+| `list_plugin_repo_versions`        | Recent commits on the upstream plugin repo.            |
 
 **Flows** (2)
 
@@ -224,8 +265,8 @@ session.
 | `get_job_report`        | Full worker log for a job — the ffmpeg command line and its errors. |
 | `list_file_job_reports` | Every report recorded for one file, by `footprintId`.               |
 | `read_job_report_file`  | Read an individual report file belonging to a job.                  |
-| `delete_job_report`     | Delete one report.                                                  |
-| `delete_job_reports`    | Delete reports in bulk, optionally filtered.                        |
+| `delete_job_report` †   | Delete one report.                                                  |
+| `delete_job_reports` †  | Delete reports in bulk, optionally filtered.                        |
 
 **Backups** (5)
 
@@ -235,7 +276,7 @@ session.
 | `create_backup`       | Back up the Tdarr database.       |
 | `get_backup_status`   | Progress of a backup in flight.   |
 | `reset_backup_status` | Clear a stuck backup status.      |
-| `delete_backup`       | Delete a backup.                  |
+| `delete_backup` †     | Delete a backup.                  |
 
 **Automations** (3)
 
@@ -261,12 +302,16 @@ session.
   farm state.
 - **Flows are read-only.** An agent can read and explain any flow, but flow graphs are edited in
   the Tdarr flow editor.
-- **Tools that delete media are marked as such** in their descriptions — `delete_file`,
-  `bulk_delete_files` and `delete_unhealthy_files` remove real files from disk. So do
-  `remove_library_files` (database records only), `restart_server` and `restart_node` (interrupt
-  running work). Confirm before letting an agent run them unattended.
+- **Destructive tools are opt-in.** Anything that deletes data, interrupts work, writes plugin code
+  or runs a command on the server is only registered with `TDARR_ALLOW_DESTRUCTIVE=true` — see
+  [Destructive tools](#destructive-tools). Their descriptions still say what they destroy; confirm
+  before letting an agent run them unattended.
+- **Ordinary writes stay available.** Scans, requeues, schedule and plugin-stack changes, worker
+  limits, node settings, `bulk_update_files`, backups and `run_automation` change server state but
+  can be undone, so they are not gated.
 - **Secrets stay in the environment.** The API key is read from env and sent only as the
-  `x-api-key` header.
+  `x-api-key` header, and the client refuses to follow redirects so the key cannot be forwarded to
+  another origin.
 
 ## Development
 
