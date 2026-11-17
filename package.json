@@ -22,7 +22,7 @@
     "prepare": "npm run build && prek install"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": [
     "mcp",
