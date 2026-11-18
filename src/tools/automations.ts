@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err } from "../tdarr/format.js";
+import { READ, WRITE } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 const AUTOMATIONS = "AutomationsJSONDB";
@@ -10,6 +11,7 @@ export function registerAutomationTools(server: McpServer, client: TdarrClient) 
     "list_automations",
     "List the automation configurations defined on the server. The _id of one of these is the config_id run_automation takes.",
     {},
+    READ,
     async () => {
       try {
         return ok(await client.cruddb({ collection: AUTOMATIONS, mode: "getAll" }));
@@ -25,6 +27,7 @@ export function registerAutomationTools(server: McpServer, client: TdarrClient) 
     {
       config_id: z.string().describe("Automation config ID, from list_automations"),
     },
+    READ,
     async ({ config_id }) => {
       try {
         return ok(
@@ -42,7 +45,7 @@ export function registerAutomationTools(server: McpServer, client: TdarrClient) 
     {
       config_id: z.string().describe("Automation config ID, from list_automations"),
       payload: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .optional()
         .describe("Payload passed to the automation, shaped by that automation's config"),
       library_ids: z.array(z.string()).optional().describe("Restrict the run to these libraries"),
@@ -64,6 +67,7 @@ export function registerAutomationTools(server: McpServer, client: TdarrClient) 
         .describe("Ignore the nodes' configured worker limits"),
       bypass_staged_file_limit: z.boolean().optional().describe("Ignore the staged file limit"),
     },
+    WRITE,
     async (args) => {
       try {
         const data: Record<string, unknown> = { configId: args.config_id };

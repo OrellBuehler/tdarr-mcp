@@ -1,11 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, summarizeLibrary, summarizeList } from "../tdarr/format.js";
+import { DESTRUCTIVE, IDEMPOTENT, READ, WRITE } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 const LIBRARIES = "LibrarySettingsJSONDB";
 
-export function registerLibraryTools(server: McpServer, client: TdarrClient) {
+export function registerLibraryTools(
+  server: McpServer,
+  client: TdarrClient,
+  allowDestructive = false,
+) {
   server.tool(
     "list_libraries",
     "List the configured Tdarr libraries with their ID, name, source folder, priority, plugin stack or flow, and scanning settings. The library _id is the dbID every other library and file tool needs.",
@@ -15,6 +20,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Return the full library records instead of the summary"),
     },
+    READ,
     async ({ detailed }) => {
       try {
         const res = await client.cruddb({ collection: LIBRARIES, mode: "getAll" });
@@ -31,6 +37,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
     {
       library_id: z.string().describe("Library ID (dbID), from list_libraries"),
     },
+    READ,
     async ({ library_id }) => {
       try {
         return ok(
@@ -61,6 +68,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Explicit list of file paths, required for scanFolderWatcher"),
     },
+    WRITE,
     async ({ library_id, mode, path, paths }) => {
       try {
         if (mode === "scanFolderWatcher" && (!paths || paths.length === 0)) {
@@ -99,6 +107,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
     {
       library_id: z.string().describe("Library ID (dbID), from list_libraries"),
     },
+    READ,
     async ({ library_id }) => {
       try {
         return ok(
@@ -116,24 +125,10 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
     {
       library_id: z.string().describe("Library ID (dbID), from list_libraries"),
     },
+    IDEMPOTENT,
     async ({ library_id }) => {
       try {
         return ok(await client.post("/api/v2/kill-file-scanner", { data: { dbID: library_id } }));
-      } catch (e) {
-        return err(e);
-      }
-    },
-  );
-
-  server.tool(
-    "remove_library_files",
-    "Remove every file record of a library from the Tdarr database (POST /api/v2/remove-library-files). Files on disk are NOT touched — this only clears the scan results, which then have to be rebuilt with scan_library. Ask the user before calling this.",
-    {
-      library_id: z.string().describe("Library ID (dbID), from list_libraries"),
-    },
-    async ({ library_id }) => {
-      try {
-        return ok(await client.post("/api/v2/remove-library-files", { data: { DB: library_id } }));
       } catch (e) {
         return err(e);
       }
@@ -148,6 +143,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
       folder: z.string().describe("Path of the folder to watch, as configured on the library"),
       status: z.boolean().describe("true to enable watching, false to disable"),
     },
+    IDEMPOTENT,
     async ({ library_id, folder, status }) => {
       try {
         return ok(
@@ -170,6 +166,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
       end: z.number().int().describe("Index of the last schedule block in the range"),
       type: z.string().describe("Schedule type the range belongs to, as used by the Tdarr UI"),
     },
+    WRITE,
     async ({ library_id, start, end, type }) => {
       try {
         return ok(
@@ -191,6 +188,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
       block: z.string().describe("Schedule block identifier, as stored on the library record"),
       status: z.boolean().describe("true to allow processing in this block, false to block it"),
     },
+    IDEMPOTENT,
     async ({ library_id, block, status }) => {
       try {
         return ok(
@@ -224,6 +222,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
         .describe("Position in the plugin stack, required for action 'add'"),
       status: z.boolean().optional().describe("Enabled state, required for action 'update'"),
     },
+    WRITE,
     async ({ library_id, plugin_id, action, source, index, status }) => {
       try {
         if (action === "add") {
@@ -267,6 +266,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
         .describe("add puts the codec in the list, remove takes it out, update toggles it"),
       status: z.boolean().optional().describe("Enabled state, required for action 'update'"),
     },
+    WRITE,
     async ({ library_id, stream, codec, action, status }) => {
       try {
         if (action === "update" && status === undefined) {
@@ -289,6 +289,7 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
     {
       folder_path: z.string().describe("Folder path to list, as visible to Tdarr Server"),
     },
+    READ,
     async ({ folder_path }) => {
       try {
         return ok(
@@ -306,11 +307,30 @@ export function registerLibraryTools(server: McpServer, client: TdarrClient) {
     {
       folder_path: z.string().describe("Folder path to check, as visible to Tdarr Server"),
     },
+    READ,
     async ({ folder_path }) => {
       try {
         return ok(
           await client.post("/api/v2/verify-folder-exists", { data: { folderPath: folder_path } }),
         );
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  if (!allowDestructive) return;
+
+  server.tool(
+    "remove_library_files",
+    "Remove every file record of a library from the Tdarr database (POST /api/v2/remove-library-files). Files on disk are NOT touched — this only clears the scan results, which then have to be rebuilt with scan_library. Ask the user before calling this.",
+    {
+      library_id: z.string().describe("Library ID (dbID), from list_libraries"),
+    },
+    DESTRUCTIVE,
+    async ({ library_id }) => {
+      try {
+        return ok(await client.post("/api/v2/remove-library-files", { data: { DB: library_id } }));
       } catch (e) {
         return err(e);
       }

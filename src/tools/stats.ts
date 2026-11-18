@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err } from "../tdarr/format.js";
+import { READ } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 export function registerStatsTools(server: McpServer, client: TdarrClient) {
@@ -13,6 +14,7 @@ export function registerStatsTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Library ID to scope the stats to (default: all libraries)"),
     },
+    READ,
     async ({ library_id }) => {
       try {
         return ok(await client.post("/api/v2/stats/get-pies", { data: { libraryId: library_id } }));
@@ -31,6 +33,7 @@ export function registerStatsTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Library ID to scope the stats to (default: all libraries)"),
     },
+    READ,
     async ({ library_id }) => {
       try {
         return ok(
@@ -58,6 +61,7 @@ export function registerStatsTools(server: McpServer, client: TdarrClient) {
         .describe("Restrict to one worker type, e.g. 'transcodecpu'"),
       plugin_id: z.string().optional().describe("Restrict to one plugin"),
     },
+    READ,
     async ({ timeframe, library_id, node_id, worker_type, plugin_id }) => {
       try {
         return ok(
@@ -92,6 +96,7 @@ export function registerStatsTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Restrict to one worker type, e.g. 'transcodegpu'"),
     },
+    READ,
     async ({ timeframe, library_id, node_id, worker_type }) => {
       try {
         return ok(
@@ -119,6 +124,7 @@ export function registerStatsTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Timeframe to report over, as used by the Tdarr UI"),
     },
+    READ,
     async ({ timeframe }) => {
       try {
         return ok(await client.post("/api/v2/stats/get-res-hist", { data: { timeframe } }));
@@ -137,6 +143,7 @@ export function registerStatsTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Timeframe to report over, as used by the Tdarr UI"),
     },
+    READ,
     async ({ timeframe }) => {
       try {
         return ok(

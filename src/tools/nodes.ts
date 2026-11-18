@@ -1,11 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { buildQS, ok, err, summarizeNodes, tail } from "../tdarr/format.js";
+import { DESTRUCTIVE, IDEMPOTENT, READ, WRITE } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 const WORKER_TYPES = ["healthcheckcpu", "healthcheckgpu", "transcodecpu", "transcodegpu"] as const;
 
-export function registerNodeTools(server: McpServer, client: TdarrClient) {
+export function registerNodeTools(
+  server: McpServer,
+  client: TdarrClient,
+  allowDestructive = false,
+) {
   server.tool(
     "list_nodes",
     "List the connected Tdarr nodes (GET /api/v2/get-nodes), keyed by node ID. The summary gives name, paused state, version, worker limits, running worker count and resource stats; pass detailed for the full record including every running worker.",
@@ -15,6 +20,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Return the full node records instead of the summary"),
     },
+    READ,
     async ({ detailed }) => {
       try {
         return ok(summarizeNodes(await client.get("/api/v2/get-nodes"), detailed));
@@ -36,6 +42,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Number of trailing lines to return (default 100; use 0 for the full log)"),
     },
+    READ,
     async ({ node_id, lines }) => {
       try {
         const res = await client.post("/api/v2/get-node-log", { data: { nodeID: node_id } });
@@ -57,6 +64,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
         .optional()
         .describe("Require at least this many connected nodes before reporting ready"),
     },
+    READ,
     async ({ number_of_nodes }) => {
       try {
         const qs = buildQS({ numberOfNodes: number_of_nodes });
@@ -73,9 +81,10 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
     {
       node_id: z.string().describe("Node ID, from list_nodes"),
       node_updates: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .describe("Object of node fields to change, e.g. { nodePaused: true }"),
     },
+    IDEMPOTENT,
     async ({ node_id, node_updates }) => {
       try {
         return ok(
@@ -97,6 +106,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
       process: z.enum(["increase", "decrease"]).describe("Direction to move the limit"),
       worker_type: z.enum(WORKER_TYPES).describe("Which worker pool to change"),
     },
+    WRITE,
     async ({ node_id, process, worker_type }) => {
       try {
         return ok(
@@ -118,6 +128,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
       worker_id: z.string().describe("Worker ID, from the node's workers in list_nodes(detailed)"),
       cause: z.string().describe("Reason recorded against the cancellation"),
     },
+    WRITE,
     async ({ node_id, worker_id, cause }) => {
       try {
         return ok(
@@ -131,6 +142,8 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
     },
   );
 
+  if (!allowDestructive) return;
+
   server.tool(
     "kill_worker",
     "Kill a worker on a node (POST /api/v2/kill-worker). Unlike cancel_worker_item this removes the worker itself — use it for a worker that is wedged and not responding to a cancel.",
@@ -138,6 +151,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
       node_id: z.string().describe("Node ID, from list_nodes"),
       worker_id: z.string().describe("Worker ID, from the node's workers in list_nodes(detailed)"),
     },
+    DESTRUCTIVE,
     async ({ node_id, worker_id }) => {
       try {
         return ok(
@@ -157,6 +171,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
     {
       node_id: z.string().describe("Node ID, from list_nodes"),
     },
+    DESTRUCTIVE,
     async ({ node_id }) => {
       try {
         return ok(await client.post("/api/v2/restart-node", { data: { nodeID: node_id } }));
@@ -172,6 +187,7 @@ export function registerNodeTools(server: McpServer, client: TdarrClient) {
     {
       node_id: z.string().describe("Node ID, from list_nodes"),
     },
+    DESTRUCTIVE,
     async ({ node_id }) => {
       try {
         return ok(await client.post("/api/v2/disconnect-node", { data: { nodeID: node_id } }));

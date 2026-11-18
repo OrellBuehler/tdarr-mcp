@@ -43,6 +43,7 @@ export class TdarrClient {
       res = await fetch(`${this.baseUrl}${path}`, {
         ...options,
         headers: this.headers(options),
+        redirect: "error",
         signal: options.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (e) {

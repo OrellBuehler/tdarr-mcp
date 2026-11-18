@@ -31,6 +31,22 @@ describe("TdarrClient", () => {
     expect(mockFetch.mock.calls[0][1].headers["x-api-key"]).toBeUndefined();
   });
 
+  it("refuses to follow redirects, so the api key never reaches another origin", async () => {
+    const client = new TdarrClient("http://tdarr.local:8265", "tapi_abc");
+    mockFetch.mockResolvedValue(mockJson({}));
+    await client.get("/api/v2/status");
+    await client.post("/api/v2/get-res-stats", { data: {} });
+    await client.fetchText("/api/v2/get-server-log");
+    expect(mockFetch.mock.calls.map((c) => c[1].redirect)).toEqual(["error", "error", "error"]);
+  });
+
+  it("keeps redirect: error even when a caller passes its own", async () => {
+    const client = new TdarrClient("http://tdarr.local:8265", "tapi_abc");
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await client.fetch("/api/v2/status", { redirect: "follow" });
+    expect(mockFetch.mock.calls[0][1].redirect).toBe("error");
+  });
+
   it("sets a json content type for posts with a body", async () => {
     const client = new TdarrClient("http://tdarr.local:8265", "tapi_abc");
     mockFetch.mockResolvedValueOnce(mockJson({ ok: true }));

@@ -2,6 +2,7 @@ import { TdarrClient } from "./tdarr/client.js";
 
 const rawUrl = (process.env.TDARR_URL || process.env.TDARR_SERVER || "").trim();
 const apiKey = (process.env.TDARR_API_KEY || "").trim();
+const allowDestructive = /^(1|true)$/i.test((process.env.TDARR_ALLOW_DESTRUCTIVE || "").trim());
 
 if (!rawUrl) {
   console.error(
@@ -21,6 +22,7 @@ const baseUrl = normalizeBaseUrl(rawUrl);
 export const config = {
   baseUrl,
   apiKey,
+  allowDestructive,
   transport: "stdio" as const,
 };
 

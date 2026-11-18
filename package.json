@@ -1,6 +1,6 @@
 {
   "name": "@orellbuehler/tdarr-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Model Context Protocol server for Tdarr: libraries, files, nodes and workers, plugins and flows, job reports, statistics, backups and automations.",
   "type": "module",
   "bin": {
@@ -22,7 +22,7 @@
     "prepare": "npm run build && prek install"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": [
     "mcp",
@@ -54,8 +54,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "zod": "^3.24.4"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

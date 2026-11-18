@@ -35,6 +35,26 @@ describe("config", () => {
     expect(config.apiKey).toBe("");
   });
 
+  it("keeps destructive tools off unless TDARR_ALLOW_DESTRUCTIVE is truthy", async () => {
+    vi.stubEnv("TDARR_URL", "http://tdarr.local:8265");
+    for (const value of ["", "false", "0", "no", "yes please"]) {
+      vi.resetModules();
+      vi.stubEnv("TDARR_ALLOW_DESTRUCTIVE", value);
+      const { config } = await import("../config.js");
+      expect(config.allowDestructive, value).toBe(false);
+    }
+  });
+
+  it("enables destructive tools for TDARR_ALLOW_DESTRUCTIVE=true or 1", async () => {
+    vi.stubEnv("TDARR_URL", "http://tdarr.local:8265");
+    for (const value of ["true", "TRUE", "1", " true "]) {
+      vi.resetModules();
+      vi.stubEnv("TDARR_ALLOW_DESTRUCTIVE", value);
+      const { config } = await import("../config.js");
+      expect(config.allowDestructive, value).toBe(true);
+    }
+  });
+
   it("exits the process when the url is missing", async () => {
     vi.stubEnv("TDARR_URL", "");
     vi.stubEnv("TDARR_SERVER", "");

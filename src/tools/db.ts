@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err } from "../tdarr/format.js";
+import { READ } from "./shared.js";
 import type { TdarrClient } from "../tdarr/client.js";
 
 const COLLECTIONS = [
@@ -29,6 +30,7 @@ export function registerDbTools(server: McpServer, client: TdarrClient) {
         .describe("getAll returns every document; getById and getByIndex look one up by doc_id"),
       doc_id: z.string().optional().describe("Document ID, required for getById and getByIndex"),
     },
+    READ,
     async ({ collection, mode, doc_id }) => {
       try {
         if (mode !== "getAll" && doc_id === undefined) {
